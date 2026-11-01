@@ -80,6 +80,8 @@ http://localhost:5173
 http://localhost:3001/api
 ```
 
+O portal precisa dos dois serviços em execução. Use `npm run dev` para iniciar o frontend e o backend juntos; iniciar somente o Vite deixa a API indisponível.
+
 5. Gere o build de produção do frontend:
 
 ```bash

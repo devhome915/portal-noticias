@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import { NewsInteractionBar } from './App'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import App, { NewsInteractionBar } from './App'
 
 type MockArticle = {
   id: number
@@ -45,6 +45,28 @@ const article: MockArticle = {
   },
   commentCount: 17,
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('PublicPortal API errors', () => {
+  it('explains when the backend is unavailable and offers a retry', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        text: vi.fn().mockResolvedValue(''),
+      }),
+    )
+
+    render(<App />)
+
+    expect(await screen.findByText(/A API está indisponível \(HTTP 502\)/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /tentar novamente/i })).toBeInTheDocument()
+  })
+})
 
 describe('NewsInteractionBar', () => {
   it('renders the compact social summary', () => {

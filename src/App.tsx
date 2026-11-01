@@ -79,6 +79,36 @@ const formatDate = (value: string) =>
     year: 'numeric',
   }).format(new Date(value))
 
+type ApiResponse<T> = {
+  success: boolean
+  data: T
+  message?: string
+}
+
+async function readApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  const body = await response.text()
+
+  if ([502, 503, 504].includes(response.status)) {
+    throw new Error(
+      `A API está indisponível (HTTP ${response.status}). Inicie o backend com "npm run dev" e tente novamente.`,
+    )
+  }
+
+  let data: ApiResponse<T>
+
+  try {
+    data = JSON.parse(body) as ApiResponse<T>
+  } catch {
+    throw new Error(`A API retornou uma resposta inválida (HTTP ${response.status}).`)
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message ?? `A solicitação falhou (HTTP ${response.status}).`)
+  }
+
+  return data
+}
+
 const getStoredUser = () => {
   if (typeof window === 'undefined') {
     return null
@@ -273,6 +303,7 @@ function PublicPortal() {
   const [selectedCategory, setSelectedCategory] = useState<(typeof categories)[number]>('Todas')
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoadingCards, setIsLoadingCards] = useState(false)
+  const [newsRequestVersion, setNewsRequestVersion] = useState(0)
   const loadingTimerRef = useRef<number | null>(null)
 
   const isAuthenticated = Boolean(getStoredUser())
@@ -283,9 +314,9 @@ function PublicPortal() {
 
       try {
         const response = await fetch('/api/news?page=1&limit=9')
-        const data = await response.json()
+        const data = await readApiResponse<Article[]>(response)
 
-        if (!response.ok || !data.success) {
+        if (!data.success) {
           throw new Error(data.message ?? 'Não foi possível carregar as notícias.')
         }
 
@@ -299,7 +330,7 @@ function PublicPortal() {
     }
 
     void fetchNews()
-  }, [])
+  }, [newsRequestVersion])
 
   useEffect(() => {
     return () => {
@@ -490,6 +521,17 @@ function PublicPortal() {
           <section className="status-panel error" aria-live="polite">
             <h2>Não foi possível carregar as notícias.</h2>
             <p>{error}</p>
+            <button
+              type="button"
+              className="primary-button small"
+              onClick={() => {
+                setError('')
+                setLoading(true)
+                setNewsRequestVersion((version) => version + 1)
+              }}
+            >
+              Tentar novamente
+            </button>
           </section>
         ) : isLoadingCards ? (
           <section className="loading-grid" aria-live="polite" aria-busy="true">
