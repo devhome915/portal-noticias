@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { NewsInteractionBar } from '../components/NewsInteractionBar'
-import { SiteHeader } from '../components/SiteHeader'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
+import { ArticleGrid } from '../components/ArticleCard'
+import { SiteLayout } from '../components/SiteLayout'
+import { getCategoryTheme } from '../utils/categoryTheme'
 import type { Article, NewsCategory, ReactionType } from '../types/news'
 
 type NewsResponse = {
@@ -18,6 +20,8 @@ type NewsResponse = {
 export function CategoryPage() {
   const { slug } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const search = searchParams.get('q')?.trim() ?? ''
   const requestedPage = Number(searchParams.get('page') ?? 1)
@@ -27,6 +31,7 @@ export function CategoryPage() {
   const [totalPages, setTotalPages] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [interactionError, setInteractionError] = useState('')
   const [notFound, setNotFound] = useState(false)
   const category = categories.find((item) => item.slug === slug)
 
@@ -99,18 +104,48 @@ export function CategoryPage() {
   }
 
   const handleRequireLogin = () => {
-    window.alert('A autenticação de leitores ainda não está disponível. Esta ação está desativada.')
+    const returnTo = `${location.pathname}${location.search}${location.hash}`
+    navigate(`/admin/login?returnTo=${encodeURIComponent(returnTo)}`)
+  }
+
+  const handleReact = async (articleId: number, reaction: ReactionType) => {
+    try {
+      const response = await fetch(`/api/news/${articleId}/reactions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ reaction }),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.message ?? 'Não foi possível salvar sua reação.')
+      setArticles((current) => current.map((article) => article.id === articleId ? { ...article, reactions: result.data } : article))
+      setInteractionError('')
+    } catch (actionError) {
+      setInteractionError(actionError instanceof Error ? actionError.message : 'Não foi possível salvar sua reação.')
+    }
+  }
+
+  const handleRemoveReaction = async (articleId: number) => {
+    try {
+      const response = await fetch(`/api/news/${articleId}/reactions`, { method: 'DELETE', credentials: 'same-origin' })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.message ?? 'Não foi possível remover sua reação.')
+      setArticles((current) => current.map((article) => article.id === articleId ? { ...article, reactions: result.data } : article))
+      setInteractionError('')
+    } catch (actionError) {
+      setInteractionError(actionError instanceof Error ? actionError.message : 'Não foi possível remover sua reação.')
+    }
   }
 
   return (
-    <div className="page-shell">
-      <SiteHeader categories={categories} />
-      <main className="content-area">
+    <SiteLayout categories={categories} contentClassName={`category-theme--${getCategoryTheme(category?.name ?? 'Brasil')}`}>
         <div className="category-page-heading">
           <p className="eyebrow">{search ? 'Busca' : 'Categoria'}</p>
           <h1>{search ? `Resultados para “${search}”` : category?.name ?? 'Notícias'}</h1>
           <p>{category?.description ?? 'Acompanhe as notícias mais recentes do Portal.'}</p>
         </div>
+
+        {interactionError ? <p className="admin-error" role="alert">{interactionError}</p> : null}
 
         {loading ? (
           <section className="status-panel empty" aria-live="polite">
@@ -133,32 +168,16 @@ export function CategoryPage() {
           </section>
         ) : (
           <>
-            <section className="news-grid category-news-grid" aria-label="Notícias">
-              {articles.map((article) => (
-                <article key={article.id} className="news-card">
-                  <img src={article.imagemUrl} alt={article.titulo} />
-                  <div className="card-content">
-                    <span className="story-tag">{article.categoria}</span>
-                    <h2><Link to={`/noticias/${article.slug}`}>{article.titulo}</Link></h2>
-                    <p>{article.resumo}</p>
-                    <div className="story-meta">
-                      <span>{article.fonte}</span>
-                      <time dateTime={article.dataPublicacao}>
-                        {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(article.dataPublicacao))}
-                      </time>
-                    </div>
-                    <NewsInteractionBar
-                      article={article}
-                      isAuthenticated={false}
-                      onReact={(_reaction: ReactionType) => handleRequireLogin()}
-                      onRemoveReaction={handleRequireLogin}
-                      onOpenComments={() => navigate(`/noticias/${article.slug}#comentarios`)}
-                      onRequireLogin={handleRequireLogin}
-                    />
-                  </div>
-                </article>
-              ))}
-            </section>
+            <ArticleGrid
+              articles={articles}
+              className="category-news-grid"
+              byline="source"
+              isAuthenticated={Boolean(user)}
+              onReact={handleReact}
+              onRemoveReaction={handleRemoveReaction}
+              onOpenComments={(articleSlug) => navigate(`/noticias/${articleSlug}#comentarios`)}
+              onRequireLogin={handleRequireLogin}
+            />
 
             {totalPages > 1 ? (
               <nav className="pagination-controls" aria-label="Paginação de notícias">
@@ -169,7 +188,6 @@ export function CategoryPage() {
             ) : null}
           </>
         )}
-      </main>
-    </div>
+    </SiteLayout>
   )
 }

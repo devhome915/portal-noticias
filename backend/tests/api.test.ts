@@ -93,6 +93,45 @@ describe('Portal API', () => {
     expect((await client.get('/api/admin/session')).status).toBe(401)
   })
 
+  it('protects Google integration status and builds a scoped OAuth request for admins', async () => {
+    expect((await request(app).get('/api/admin/google/status')).status).toBe(401)
+
+    const client = request.agent(app)
+    await client
+      .post('/api/admin/login')
+      .set('Origin', trustedOrigin)
+      .send({ username: 'test-admin', password: 'test-only-password' })
+
+    const statusResponse = await client.get('/api/admin/google/status')
+    expect(statusResponse.status).toBe(200)
+    expect(statusResponse.body.data).toMatchObject({
+      configured: true,
+      connected: false,
+      persistence: 'memory',
+    })
+
+    const authorizationResponse = await client.get('/api/admin/google/auth')
+    expect(authorizationResponse.status).toBe(302)
+
+    const authorizationUrl = new URL(authorizationResponse.headers.location)
+    expect(authorizationUrl.hostname).toBe('accounts.google.com')
+    expect(authorizationUrl.searchParams.get('redirect_uri')).toBe(
+      'http://localhost:3001/api/admin/google/auth/callback',
+    )
+    expect(authorizationUrl.searchParams.get('access_type')).toBe('offline')
+    expect(authorizationUrl.searchParams.get('scope')?.split(' ')).toEqual([
+      'https://www.googleapis.com/auth/spreadsheets',
+      'https://www.googleapis.com/auth/drive.file',
+    ])
+    expect(authorizationUrl.searchParams.get('state')).toMatch(/^[a-f0-9]{64}$/)
+
+    const invalidCallback = await client.get(
+      '/api/admin/google/auth/callback?code=not-used&state=invalid',
+    )
+    expect(invalidCallback.status).toBe(302)
+    expect(invalidCallback.headers.location).toContain('google=error')
+  })
+
   it('rejects admin mutations without a valid same-site session', async () => {
     const response = await request(app)
       .post('/api/admin/news')

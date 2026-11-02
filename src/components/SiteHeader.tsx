@@ -1,7 +1,26 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../auth/AuthContext'
+import { getDisplayName, getUserInitials } from '../auth/userDisplay'
 import type { NewsCategory } from '../types/news'
 
+function UserAvatar({ picture, name }: { picture?: string; name: string }) {
+  const [imageFailed, setImageFailed] = useState(false)
+  if (!picture || imageFailed) {
+    return <span className="auth-avatar auth-avatar-initials" aria-hidden="true">{getUserInitials(name)}</span>
+  }
+  return <img className="auth-avatar" src={picture} alt="" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} />
+}
+
 export function SiteHeader({ categories }: { categories: NewsCategory[] }) {
+  const { user, loading, logout } = useAuth()
+  const navigate = useNavigate()
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/', { replace: true })
+  }
+
   return (
     <header className="site-header">
       <Link to="/" className="brand" aria-label="Portal de Notícias">
@@ -22,9 +41,19 @@ export function SiteHeader({ categories }: { categories: NewsCategory[] }) {
       </nav>
 
       <div className="header-actions">
-        <Link to="/admin/login" className="admin-link">
-          Painel
-        </Link>
+        {loading ? <span className="auth-indicator">Verificando acesso...</span> : null}
+        {user ? (
+          <>
+            <span className="auth-profile" title={`${getDisplayName(user.username, user.email)} (${user.email})`}>
+              <UserAvatar key={user.picture ?? user.username} picture={user.picture} name={getDisplayName(user.username, user.email)} />
+              <span className="auth-indicator">{getDisplayName(user.username, user.email)}</span>
+            </span>
+            {user.role === 'admin' ? <Link to="/admin/dashboard" className="admin-link">Painel</Link> : null}
+            <button type="button" className="admin-link auth-logout" onClick={() => void handleLogout()}>Sair</button>
+          </>
+        ) : !loading ? (
+          <Link to="/admin/login" className="admin-link">Entrar</Link>
+        ) : null}
         <button type="button" className="cta-button">
           Assine
         </button>

@@ -1,15 +1,41 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
+import { env } from '../config/env.js'
 import { categoryRegistry } from '../data/categories.js'
 import { newsSeed } from '../data/news.js'
 import type { CreateNewsInput, NewsArticle, NewsStatus } from '../types.js'
 import { getCommentsCount, getReactionSummary } from './socialService.js'
 
-const articles: NewsArticle[] = [...newsSeed]
+const newsStorePath = path.resolve(process.cwd(), 'data/news-store.json')
+
+function loadArticles(): NewsArticle[] {
+  if (env.nodeEnv === 'test' || !existsSync(newsStorePath)) return [...newsSeed]
+
+  try {
+    const saved = JSON.parse(readFileSync(newsStorePath, 'utf8')) as unknown
+    if (!Array.isArray(saved)) throw new Error('O arquivo de notícias precisa conter uma lista.')
+    return saved as NewsArticle[]
+  } catch (error) {
+    throw new Error(`Não foi possível carregar os dados locais de notícias: ${error instanceof Error ? error.message : 'arquivo inválido'}`)
+  }
+}
+
+function persistArticles() {
+  if (env.nodeEnv === 'test') return
+  mkdirSync(path.dirname(newsStorePath), { recursive: true })
+  const temporaryPath = `${newsStorePath}.${process.pid}.tmp`
+  writeFileSync(temporaryPath, JSON.stringify(articles, null, 2), 'utf8')
+  renameSync(temporaryPath, newsStorePath)
+}
+
+const articles: NewsArticle[] = loadArticles()
 
 export function listPublishedNews(params: {
   category?: string
   search?: string
   page?: number
   limit?: number
+  userId?: string
 }) {
   const page = Number(params.page ?? 1)
   const limit = Number(params.limit ?? 9)
@@ -37,7 +63,7 @@ export function listPublishedNews(params: {
   const startIndex = (currentPage - 1) * limit
   const data = filtered.slice(startIndex, startIndex + limit).map((article) => ({
     ...article,
-    reactions: getReactionSummary(article.id),
+    reactions: getReactionSummary(article.id, params.userId),
     commentCount: getCommentsCount(article.id),
   }))
 
@@ -51,7 +77,7 @@ export function listPublishedNews(params: {
   }
 }
 
-export function getNewsBySlug(slug: string) {
+export function getNewsBySlug(slug: string, userId?: string) {
   const article = articles.find((item) => item.slug === slug && item.status === 'publicado')
 
   if (!article) {
@@ -60,12 +86,16 @@ export function getNewsBySlug(slug: string) {
 
   return {
     ...article,
-    reactions: getReactionSummary(article.id),
+    reactions: getReactionSummary(article.id, userId),
     commentCount: getCommentsCount(article.id),
   }
 }
 
-export function getFeaturedNews() {
+export function isPublishedNews(id: number) {
+  return articles.some((article) => article.id === id && article.status === 'publicado')
+}
+
+export function getFeaturedNews(userId?: string) {
   const published = articles.filter((item) => item.status === 'publicado')
   const article =
     published.find((item) => item.destaque) ??
@@ -77,7 +107,7 @@ export function getFeaturedNews() {
 
   return {
     ...article,
-    reactions: getReactionSummary(article.id),
+    reactions: getReactionSummary(article.id, userId),
     commentCount: getCommentsCount(article.id),
   }
 }
@@ -115,6 +145,7 @@ export function createNews(input: CreateNewsInput) {
   }
 
   articles.unshift(article)
+  persistArticles()
   return article
 }
 
@@ -134,6 +165,7 @@ export function updateNewsById(id: number, input: Partial<CreateNewsInput>) {
   }
 
   articles[index] = updated
+  persistArticles()
   return updated
 }
 
@@ -145,6 +177,7 @@ export function deleteNewsById(id: number) {
   }
 
   const [removed] = articles.splice(index, 1)
+  if (removed) persistArticles()
   return removed !== undefined
 }
 

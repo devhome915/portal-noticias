@@ -2,21 +2,27 @@ import type { NextFunction, Request, Response } from 'express'
 import { env } from '../config/env.js'
 import { getAdminSession } from '../services/authService.js'
 
-export const ADMIN_SESSION_COOKIE = 'portal_admin_session'
+export const AUTH_SESSION_COOKIE = 'portal_session'
+export const LEGACY_ADMIN_SESSION_COOKIE = 'portal_admin_session'
 
-export function getAdminTokenFromRequest(req: Request) {
+export function getAuthTokenFromRequest(req: Request) {
   const cookieHeader = req.headers.cookie
   if (!cookieHeader) {
     return undefined
   }
 
-  const cookie = cookieHeader
+  const cookies = cookieHeader
     .split(';')
     .map((value) => value.trim())
-    .find((value) => value.startsWith(`${ADMIN_SESSION_COOKIE}=`))
+  const cookie = cookies.find((value) => value.startsWith(`${AUTH_SESSION_COOKIE}=`))
+    ?? cookies.find((value) => value.startsWith(`${LEGACY_ADMIN_SESSION_COOKIE}=`))
 
-  return cookie?.slice(ADMIN_SESSION_COOKIE.length + 1)
+  if (!cookie) return undefined
+  const cookieName = cookie.startsWith(`${AUTH_SESSION_COOKIE}=`) ? AUTH_SESSION_COOKIE : LEGACY_ADMIN_SESSION_COOKIE
+  return cookie.slice(cookieName.length + 1)
 }
+
+export const getAdminTokenFromRequest = getAuthTokenFromRequest
 
 export function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const token = getAdminTokenFromRequest(req)

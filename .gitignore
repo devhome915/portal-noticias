@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+work-vite-local.config.mjs
+backend/data/news-store.json
+backend/data/social-store.json
 .env
 .env.*
 !.env.example

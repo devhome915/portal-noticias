@@ -2,7 +2,9 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { env } from '../config/env.js'
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
-const adminSessions = new Map<string, { username: string; expiresAt: number }>()
+export type AuthRole = 'admin' | 'reader'
+export type AuthSession = { username: string; email: string; picture?: string; role: AuthRole; expiresAt: number }
+const sessions = new Map<string, AuthSession>()
 
 type AdminPasswordHash = {
   salt: Buffer
@@ -58,30 +60,45 @@ export function validateAdminCredentials(username: string, password: string) {
 export function issueAdminToken(username: string) {
   const token = randomBytes(32).toString('hex')
   const expiresAt = Date.now() + SESSION_TTL_MS
-  adminSessions.set(token, { username, expiresAt })
+  sessions.set(token, { username, email: username, role: 'admin', expiresAt })
   return { token, expiresAt }
 }
 
-export function revokeAdminToken(token: string) {
-  adminSessions.delete(token)
+export function issueGoogleSession(email: string, name?: string, picture?: string) {
+  const token = randomBytes(32).toString('hex')
+  const expiresAt = Date.now() + SESSION_TTL_MS
+  const normalizedEmail = email.trim().toLowerCase()
+  const role = normalizedEmail === env.adminGoogleEmail ? 'admin' : 'reader'
+  const displayName = name?.trim() || normalizedEmail.split('@')[0].replace(/[._-]+/g, ' ')
+  sessions.set(token, { username: displayName, email: normalizedEmail, picture, role, expiresAt })
+  return { token, expiresAt, role }
 }
 
-export function getAdminSession(token?: string) {
+export function revokeAdminToken(token: string) {
+  sessions.delete(token)
+}
+
+export function getAuthSession(token?: string) {
   if (!token) {
     return null
   }
 
-  const session = adminSessions.get(token)
+  const session = sessions.get(token)
   if (!session) {
     return null
   }
 
   if (session.expiresAt <= Date.now()) {
-    adminSessions.delete(token)
+    sessions.delete(token)
     return null
   }
 
   return session
+}
+
+export function getAdminSession(token?: string) {
+  const session = getAuthSession(token)
+  return session?.role === 'admin' ? session : null
 }
 
 export function requiresAdminToken(token?: string) {

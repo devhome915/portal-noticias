@@ -141,7 +141,12 @@ Reduzir o ruído visual da homepage, manter a descoberta de notícias limpa e co
 - O `NewsInteractionBar` foi extraído para componente reutilizável.
 - Adicionadas páginas de categoria e busca com paginação, menu alimentado pelas categorias da API, categoria Games e página 404.
 - Substituídos links fictícios da navegação pública por destinos existentes.
-- Criado o guia de configuração Google, mantendo OAuth/integrações desativados até que o fluxo seja implementado.
+- Criado o guia de configuração Google com escopos restritos e ressalvas para publicação.
+- Configurado o cliente OAuth Web local em `backend/.env` (ignorado pelo Git), com callback registrado, estado CSRF vinculado à sessão administrativa, escopos Sheets + Drive `drive.file`, status/conectar/desconectar e painel no Dashboard.
+- Adicionada opção **Continuar com Google** ao login administrativo; o backend consulta o perfil verificado e aceita somente `ADMIN_GOOGLE_EMAIL`. O callback OAuth já cadastrado foi reutilizado.
+- Notícias criadas, editadas ou removidas no painel agora são gravadas atomicamente em `backend/data/news-store.json`, ignorado pelo Git; testes usam os dados seed sem gravar no arquivo local.
+- A sessão OAuth passou a valer também no portal público, com cookie HttpOnly no caminho `/`, identificação visível no cabeçalho e acesso ao painel apenas para o e-mail administrativo.
+- Reações e comentários passaram a aceitar a sessão verificada; a identidade vem do servidor. O painel ganhou edição completa de matérias além de criação, publicação e exclusão.
 
 ### Validação
 - Testes backend: 7 aprovados.
@@ -152,18 +157,20 @@ Reduzir o ruído visual da homepage, manter a descoberta de notícias limpa e co
 - Verificação manual no navegador: home sem comentários embutidos, rota Games, detalhe com hash `#comentarios`, 404, login com erro de configuração, redirecionamento do dashboard sem sessão e botões lado a lado em viewport desktop/mobile.
 
 ### Limitações conhecidas
-- Autenticação de leitores ainda não existe; reações e comentários de escrita permanecem desativados de forma explícita.
-- Google OAuth, Sheets, Drive e Fotos não foram ativados.
+- Login Google agora cria sessão de leitor ou administrador. Reações e comentários usam essa sessão, e o painel só aparece para o e-mail administrativo configurado.
+- OAuth Sheets/Drive pode ser autorizado no Dashboard; os conectores de dados ainda não foram implementados e os tokens permanecem somente em memória no ambiente local. Login usa os escopos `openid email profile`.
+- Google Fotos continua desativado; a gestão de imagens, moderação e persistência social ainda precisam ser implementadas.
 - A validação visual foi feita localmente; publicação e revisão em ambiente hospedado continuam pendentes.
 
 ## Roadmap previsto
 1. [x] Proteger autenticação administrativa e filtrar conteúdo público.
 2. [x] Criar rotas por categoria, busca paginada, Games e página 404.
 3. [ ] Finalizar regressão visual e testes de acessibilidade/responsividade.
-4. [ ] Implementar OAuth Google após definir conta de serviço versus autorização de usuário.
-5. [ ] Integrar Sheets/Drive e persistência de notícias.
-6. [ ] Avaliar Google Fotos e RSS com escopos e políticas adequados.
-7. [ ] Expandir testes/CI e preparar publicação.
+4. [x] Configurar OAuth Google local com permissões restritas.
+5. [ ] Implementar conectores Sheets/Drive e persistência segura de tokens.
+6. [ ] Integrar Sheets/Drive e persistência de notícias.
+7. [ ] Avaliar Google Fotos e RSS com escopos e políticas adequados.
+8. [ ] Expandir testes/CI e preparar publicação.
 
 ## Registro do diagnóstico
 - Repositório localizado em `portal-noticias`.

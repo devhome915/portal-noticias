@@ -34,7 +34,8 @@
 - **Corrigidos:** fallback de credenciais administrativas, tokens em `localStorage`, confiança em `x-user-id`, acesso público a notícias não publicadas e erro de parsing no login quando o gateway retorna corpo vazio.
 - **Implementados:** cookie administrativo HttpOnly com expiração, validação de origem nas escritas administrativas, limite de tentativas, configuração Zod com carregamento de `backend/.env`, páginas de categoria/busca, Games e página 404.
 - **Parcial:** a extração de componentes/páginas começou, mas `src/App.tsx` ainda contém o dashboard e o detalhe da notícia; as categorias públicas e o formulário administrativo agora consultam o registro do backend.
-- **Pendente:** autenticação de leitores antes de reativar reações/comentários de escrita; OAuth Google e conectores externos; persistência fora da memória; publicação/CI.
+- **Implementado:** login Google para leitores e administradores, cookie HttpOnly compartilhado pelo portal, reações/comentários autenticados e edição de notícias no painel. Notícias do painel persistem em JSON local.
+- **Pendente:** conectores Sheets/Drive, persistência segura de sessões/tokens e dados sociais, Google Fotos, publicação e CI.
 - **Validação atual:** 7 testes backend aprovados em execução anterior; 8 testes frontend aprovados antes dos dois novos casos de regressão. A última execução do Vitest não iniciou workers e precisa ser repetida. Build frontend aprovado e build TypeScript do backend executado diretamente com sucesso. O lint passa com avisos de hooks existentes.
 
 ## Limitações iniciais

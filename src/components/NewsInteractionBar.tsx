@@ -89,7 +89,11 @@ export function NewsInteractionBar({
     setSelectionOverride({ articleId: article.id, reaction })
     setSelectorOpen(false)
     triggerRef.current?.focus()
-    await onReact(reaction)
+    try {
+      await onReact(reaction)
+    } finally {
+      setSelectorOpen(false)
+    }
   }
 
   const handleRemoveSelection = async () => {
@@ -101,7 +105,11 @@ export function NewsInteractionBar({
     setSelectionOverride({ articleId: article.id, reaction: null })
     setSelectorOpen(false)
     triggerRef.current?.focus()
-    await onRemoveReaction()
+    try {
+      await onRemoveReaction()
+    } finally {
+      setSelectorOpen(false)
+    }
   }
 
   return (
@@ -115,7 +123,7 @@ export function NewsInteractionBar({
               ))}
             </span>
           ) : null}
-          <span>{totalReactions} reações</span>
+          <span>{totalReactions} {totalReactions === 1 ? 'reação' : 'reações'}</span>
         </span>
         <button type="button" className="comment-summary" onClick={onOpenComments}>
           {commentCount} comentários
@@ -160,7 +168,10 @@ export function NewsInteractionBar({
               }}
               type="button"
               className={selectedReaction === reaction.key ? 'reaction-option active' : 'reaction-option'}
-              onClick={() => void handleSelectReaction(reaction.key)}
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleSelectReaction(reaction.key)
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
                   event.preventDefault()

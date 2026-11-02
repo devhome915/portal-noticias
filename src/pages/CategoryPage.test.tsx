@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { AuthProvider } from '../auth/AuthContext'
 import { CategoryPage } from './CategoryPage'
 
 const categories = [
@@ -30,6 +31,10 @@ describe('CategoryPage', () => {
   it('loads category news and exposes pagination', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/auth/session') {
+        return { ok: false, json: async () => ({ success: false }) }
+      }
+
       if (url.pathname === '/api/categories') {
         return { ok: true, json: async () => ({ success: true, data: categories }) }
       }
@@ -46,12 +51,14 @@ describe('CategoryPage', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/categorias/games']}>
-        <Routes>
-          <Route path="/categorias/:slug" element={<CategoryPage />} />
-          <Route path="/busca" element={<CategoryPage />} />
-        </Routes>
-      </MemoryRouter>,
+      <AuthProvider>
+        <MemoryRouter initialEntries={['/categorias/games']}>
+          <Routes>
+            <Route path="/categorias/:slug" element={<CategoryPage />} />
+            <Route path="/busca" element={<CategoryPage />} />
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>,
     )
 
     expect(await screen.findByRole('heading', { name: 'Novo lançamento em Games' })).toBeInTheDocument()
