@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import App, { NewsInteractionBar } from './App'
+import App from './App'
+import { NewsInteractionBar } from './components/NewsInteractionBar'
 
 type MockArticle = {
   id: number
@@ -48,6 +49,7 @@ const article: MockArticle = {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  window.history.replaceState({}, '', '/')
 })
 
 describe('PublicPortal API errors', () => {
@@ -65,6 +67,49 @@ describe('PublicPortal API errors', () => {
 
     expect(await screen.findByText(/A API está indisponível \(HTTP 502\)/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /tentar novamente/i })).toBeInTheDocument()
+  })
+
+  it('shows a readable login error when the backend returns an empty gateway response', async () => {
+    window.history.replaceState({}, '', '/admin/login')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 502,
+        text: vi.fn().mockResolvedValue(''),
+      }),
+    )
+
+    render(<App />)
+    fireEvent.change(screen.getByLabelText('Usuário'), { target: { value: 'test-user' } })
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'not-a-real-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(await screen.findByText(/A API está indisponível \(HTTP 502\)/i)).toBeInTheDocument()
+  })
+
+  it('shows the backend configuration error for an HTTP 503 JSON response', async () => {
+    window.history.replaceState({}, '', '/admin/login')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        text: vi.fn().mockResolvedValue(
+          JSON.stringify({
+            success: false,
+            message: 'A autenticação administrativa ainda não foi configurada.',
+          }),
+        ),
+      }),
+    )
+
+    render(<App />)
+    fireEvent.change(screen.getByLabelText('Usuário'), { target: { value: 'test-user' } })
+    fireEvent.change(screen.getByLabelText('Senha'), { target: { value: 'not-a-real-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Entrar' }))
+
+    expect(await screen.findByText(/A autenticação administrativa ainda não foi configurada/i)).toBeInTheDocument()
   })
 })
 
@@ -104,6 +149,31 @@ describe('NewsInteractionBar', () => {
     fireEvent.click(screen.getByRole('button', { name: /curtir/i }))
 
     expect(onReact).toHaveBeenCalledWith('curtir')
+  })
+
+  it('supports arrow-key navigation and Escape in the reaction selector', () => {
+    render(
+      <NewsInteractionBar
+        article={article}
+        isAuthenticated
+        onReact={vi.fn()}
+        onRemoveReaction={vi.fn()}
+        onOpenComments={vi.fn()}
+        onRequireLogin={vi.fn()}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: /reagir/i })
+    fireEvent.click(trigger)
+    const likeOption = screen.getByRole('button', { name: /curtir/i })
+    expect(likeOption).toHaveFocus()
+
+    fireEvent.keyDown(likeOption, { key: 'ArrowRight' })
+    expect(screen.getByRole('button', { name: /amei/i })).toHaveFocus()
+
+    fireEvent.keyDown(screen.getByRole('button', { name: /amei/i }), { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Selecionar reação' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   it('replaces an existing reaction and removes it', async () => {

@@ -2,12 +2,8 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { getCategories, getFeaturedNews, getNewsBySlug, listPublishedNews } from '../services/newsService.js'
 import {
-  createComment,
-  deleteComment,
   getReactionSummary,
   listComments,
-  removeReaction,
-  setReaction,
 } from '../services/socialService.js'
 
 const router = Router()
@@ -18,25 +14,6 @@ const newsQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().positive().max(50).optional(),
 })
-
-const reactionSchema = z.object({
-  reaction: z.enum(['curtir', 'amei', 'uau', 'triste', 'bravo']),
-})
-
-const commentSchema = z.object({
-  author: z.string().trim().min(2).max(60).optional(),
-  content: z.string().trim().min(2).max(500),
-  parentId: z.coerce.number().int().positive().optional(),
-})
-
-const getUserId = (req: { headers: Record<string, string | string[] | undefined> }) => {
-  const userId = req.headers['x-user-id']
-  if (typeof userId === 'string') {
-    return userId.trim()
-  }
-
-  return ''
-}
 
 router.get('/health', (_req, res) => {
   res.json({
@@ -121,57 +98,24 @@ router.get('/news/slug/:slug', (req, res) => {
 
 router.get('/news/:id/social', (req, res) => {
   const articleId = Number(req.params.id)
-  const userId = getUserId(req)
 
   return res.json({
     success: true,
-    data: getReactionSummary(articleId, userId || undefined),
+    data: getReactionSummary(articleId),
   })
 })
 
 router.post('/news/:id/reactions', (req, res) => {
-  const articleId = Number(req.params.id)
-  const userId = getUserId(req)
-
-  if (!userId) {
-    return res.status(401).json({
-      success: false,
-      message: 'Faça login para registrar uma reação.',
-    })
-  }
-
-  const parsed = reactionSchema.safeParse(req.body)
-
-  if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      message: 'Reação inválida.',
-      details: parsed.error.flatten(),
-    })
-  }
-
-  const summary = setReaction(articleId, userId, parsed.data.reaction)
-
-  return res.json({
-    success: true,
-    data: summary,
+  return res.status(401).json({
+    success: false,
+    message: 'A autenticação de leitores ainda não está disponível; reações estão desativadas.',
   })
 })
 
 router.delete('/news/:id/reactions', (req, res) => {
-  const articleId = Number(req.params.id)
-  const userId = getUserId(req)
-
-  if (!userId) {
-    return res.status(401).json({
-      success: false,
-      message: 'Faça login para remover a reação.',
-    })
-  }
-
-  return res.json({
-    success: true,
-    data: removeReaction(articleId, userId),
+  return res.status(401).json({
+    success: false,
+    message: 'A autenticação de leitores ainda não está disponível; reações estão desativadas.',
   })
 })
 
@@ -187,64 +131,16 @@ router.get('/news/:id/comments', (req, res) => {
 })
 
 router.post('/news/:id/comments', (req, res) => {
-  const articleId = Number(req.params.id)
-  const userId = getUserId(req)
-
-  if (!userId) {
-    return res.status(401).json({
-      success: false,
-      message: 'Faça login para comentar.',
-    })
-  }
-
-  const parsed = commentSchema.safeParse(req.body)
-
-  if (!parsed.success) {
-    return res.status(400).json({
-      success: false,
-      message: 'Comentário inválido.',
-      details: parsed.error.flatten(),
-    })
-  }
-
-  const comment = createComment(
-    articleId,
-    userId,
-    parsed.data.author ?? 'Usuário autenticado',
-    parsed.data.content,
-    parsed.data.parentId,
-  )
-
-  return res.status(201).json({
-    success: true,
-    data: comment,
+  return res.status(401).json({
+    success: false,
+    message: 'A autenticação de leitores ainda não está disponível; comentários estão desativados.',
   })
 })
 
 router.delete('/news/:id/comments/:commentId', (req, res) => {
-  const articleId = Number(req.params.id)
-  const commentId = Number(req.params.commentId)
-  const userId = getUserId(req)
-
-  if (!userId) {
-    return res.status(401).json({
-      success: false,
-      message: 'Faça login para excluir o comentário.',
-    })
-  }
-
-  const deleted = deleteComment(articleId, commentId, userId)
-
-  if (!deleted) {
-    return res.status(404).json({
-      success: false,
-      message: 'Comentário não encontrado ou não autorizado.',
-    })
-  }
-
-  return res.json({
-    success: true,
-    message: 'Comentário removido.',
+  return res.status(401).json({
+    success: false,
+    message: 'A autenticação de leitores ainda não está disponível; comentários estão desativados.',
   })
 })
 

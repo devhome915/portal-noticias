@@ -1,14 +1,7 @@
 import type { NewsArticle } from '../types.js'
+import { categoryNames } from './categories.js'
 
-export const categories = [
-  'Brasil',
-  'Mundo',
-  'Política',
-  'Economia',
-  'Tecnologia',
-  'Esportes',
-  'Entretenimento',
-] as const
+export const categories = categoryNames
 
 export const newsSeed: NewsArticle[] = [
   {

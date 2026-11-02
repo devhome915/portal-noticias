@@ -1,13 +1,6 @@
-export type NewsStatus = 'rascunho' | 'pendente' | 'publicado' | 'arquivado'
+import type { Category } from './data/categories.js'
 
-export type Category =
-  | 'Brasil'
-  | 'Mundo'
-  | 'Política'
-  | 'Economia'
-  | 'Tecnologia'
-  | 'Esportes'
-  | 'Entretenimento'
+export type NewsStatus = 'rascunho' | 'pendente' | 'publicado' | 'arquivado'
 
 export interface NewsArticle {
   id: number

@@ -1,4 +1,5 @@
-import { categories, newsSeed } from '../data/news.js'
+import { categoryRegistry } from '../data/categories.js'
+import { newsSeed } from '../data/news.js'
 import type { CreateNewsInput, NewsArticle, NewsStatus } from '../types.js'
 import { getCommentsCount, getReactionSummary } from './socialService.js'
 
@@ -15,7 +16,9 @@ export function listPublishedNews(params: {
   const category = params.category?.trim()
   const search = params.search?.trim().toLowerCase() ?? ''
 
-  let filtered = articles.filter((article) => article.status === 'publicado')
+  let filtered = articles
+    .filter((article) => article.status === 'publicado')
+    .sort((left, right) => right.dataPublicacao.localeCompare(left.dataPublicacao))
 
   if (category && category !== 'Todas') {
     filtered = filtered.filter((article) => article.categoria === category)
@@ -44,12 +47,12 @@ export function listPublishedNews(params: {
     limit,
     total,
     totalPages,
-    categories,
+    categories: getCategories(),
   }
 }
 
 export function getNewsBySlug(slug: string) {
-  const article = articles.find((item) => item.slug === slug)
+  const article = articles.find((item) => item.slug === slug && item.status === 'publicado')
 
   if (!article) {
     return null
@@ -63,7 +66,10 @@ export function getNewsBySlug(slug: string) {
 }
 
 export function getFeaturedNews() {
-  const article = articles.find((item) => item.status === 'publicado' && item.destaque) ?? articles[0]
+  const published = articles.filter((item) => item.status === 'publicado')
+  const article =
+    published.find((item) => item.destaque) ??
+    published.sort((left, right) => right.dataPublicacao.localeCompare(left.dataPublicacao))[0]
 
   if (!article) {
     return null
@@ -77,7 +83,7 @@ export function getFeaturedNews() {
 }
 
 export function getCategories() {
-  return categories
+  return categoryRegistry.filter((category) => category.active).sort((a, b) => a.order - b.order)
 }
 
 export function listAdminNews() {

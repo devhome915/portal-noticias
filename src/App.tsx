@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BrowserRouter,
   Link,
-  Navigate,
   Route,
   Routes,
   useLocation,
@@ -10,14 +9,10 @@ import {
   useParams,
 } from 'react-router-dom'
 import './App.css'
-
-type ReactionType = 'curtir' | 'amei' | 'uau' | 'triste' | 'bravo'
-
-type ReactionSummary = {
-  total: number
-  byType: Record<ReactionType, number>
-  userReaction: ReactionType | null
-}
+import { NewsInteractionBar } from './components/NewsInteractionBar'
+import { SiteHeader } from './components/SiteHeader'
+import { CategoryPage } from './pages/CategoryPage'
+import type { Article, NewsCategory, ReactionType } from './types/news'
 
 type ThreadComment = {
   id: number
@@ -32,46 +27,6 @@ type ThreadComment = {
   replies?: ThreadComment[]
 }
 
-type Article = {
-  id: number
-  slug: string
-  titulo: string
-  resumo: string
-  conteudo: string
-  categoria: string
-  autor: string
-  fonte: string
-  imagemUrl: string
-  dataPublicacao: string
-  destaque?: boolean
-  status?: string
-  urlFonte?: string
-  reactions?: ReactionSummary
-  commentCount?: number
-}
-
-const ADMIN_TOKEN_KEY = 'portal-news-admin-token'
-const SOCIAL_USER_KEY = 'portal-news-social-user'
-
-const categories = [
-  'Todas',
-  'Política',
-  'Economia',
-  'Tecnologia',
-  'Esportes',
-  'Entretenimento',
-  'Brasil',
-  'Mundo',
-] as const
-
-const reactionOptions: Array<{ key: ReactionType; label: string; icon: string }> = [
-  { key: 'curtir', label: 'Curtir', icon: '👍' },
-  { key: 'amei', label: 'Amei', icon: '❤️' },
-  { key: 'uau', label: 'Uau', icon: '😮' },
-  { key: 'triste', label: 'Triste', icon: '😢' },
-  { key: 'bravo', label: 'Bravo', icon: '😠' },
-]
-
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
@@ -81,14 +36,15 @@ const formatDate = (value: string) =>
 
 type ApiResponse<T> = {
   success: boolean
-  data: T
+  data?: T
   message?: string
+  categories?: NewsCategory[]
 }
 
 async function readApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
   const body = await response.text()
 
-  if ([502, 503, 504].includes(response.status)) {
+  if ([502, 504].includes(response.status)) {
     throw new Error(
       `A API está indisponível (HTTP ${response.status}). Inicie o backend com "npm run dev" e tente novamente.`,
     )
@@ -109,204 +65,22 @@ async function readApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
   return data
 }
 
-const getStoredUser = () => {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  return localStorage.getItem(SOCIAL_USER_KEY)
-}
-
-const persistDemoUser = () => {
-  const existing = getStoredUser()
-
-  if (existing) {
-    return existing
-  }
-
-  const value = `demo-user-${Date.now()}`
-  localStorage.setItem(SOCIAL_USER_KEY, value)
-  return value
-}
-
 const formatStatusLabel = (value: string) =>
   value.charAt(0).toUpperCase() + value.slice(1)
-
-export function NewsInteractionBar({
-  article,
-  isAuthenticated,
-  onReact,
-  onRemoveReaction,
-  onOpenComments,
-  onRequireLogin,
-}: {
-  article: Article
-  isAuthenticated: boolean
-  onReact: (reaction: ReactionType) => Promise<void> | void
-  onRemoveReaction: () => Promise<void> | void
-  onOpenComments: () => void
-  onRequireLogin: () => void
-}) {
-  const [selectorOpen, setSelectorOpen] = useState(false)
-  const [selectedReaction, setSelectedReaction] = useState<ReactionType | null>(
-    article.reactions?.userReaction ?? null,
-  )
-  const popoverRef = useRef<HTMLDivElement | null>(null)
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
-
-  useEffect(() => {
-    setSelectedReaction(article.reactions?.userReaction ?? null)
-  }, [article.reactions?.userReaction, article.id])
-
-  useEffect(() => {
-    if (!selectorOpen) {
-      return undefined
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setSelectorOpen(false)
-      }
-    }
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (popoverRef.current && !popoverRef.current.contains(target)) {
-        setSelectorOpen(false)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('mousedown', handlePointerDown)
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('mousedown', handlePointerDown)
-    }
-  }, [selectorOpen])
-
-  const totalReactions = article.reactions?.total ?? 0
-  const commentCount = article.commentCount ?? 0
-
-  const focusOption = (nextIndex: number) => {
-    const safeIndex = Math.max(0, Math.min(nextIndex, reactionOptions.length - 1))
-    optionRefs.current[safeIndex]?.focus()
-  }
-
-  const handleSelectReaction = async (reaction: ReactionType) => {
-    if (!isAuthenticated) {
-      onRequireLogin()
-      return
-    }
-
-    setSelectedReaction(reaction)
-    setSelectorOpen(false)
-    await onReact(reaction)
-  }
-
-  const handleRemoveSelection = async () => {
-    if (!isAuthenticated) {
-      onRequireLogin()
-      return
-    }
-
-    setSelectedReaction(null)
-    setSelectorOpen(false)
-    await onRemoveReaction()
-  }
-
-  return (
-    <div className="news-interaction-bar" ref={popoverRef}>
-      <div className="interaction-summary">
-        <span className="reaction-summary">{totalReactions} reações</span>
-        <button type="button" className="comment-summary" onClick={onOpenComments}>
-          {commentCount} comentários
-        </button>
-      </div>
-
-      <div className="interaction-actions">
-        <button
-          type="button"
-          className={selectedReaction ? 'interaction-button selected' : 'interaction-button'}
-          aria-haspopup="dialog"
-          aria-expanded={selectorOpen}
-          onClick={() => {
-            if (!isAuthenticated) {
-              onRequireLogin()
-              return
-            }
-
-            setSelectorOpen((current) => !current)
-          }}
-        >
-          <span aria-hidden="true">{selectedReaction ? reactionOptions.find((item) => item.key === selectedReaction)?.icon : '👍'}</span>
-          Reagir
-        </button>
-
-        <button type="button" className="interaction-button secondary" onClick={onOpenComments}>
-          <span aria-hidden="true">💬</span>
-          Comentar
-        </button>
-      </div>
-
-      {selectorOpen ? (
-        <div className="reaction-popover" role="dialog" aria-label="Selecionar reação">
-          {reactionOptions.map((reaction, index) => (
-            <button
-              key={reaction.key}
-              ref={(element) => {
-                optionRefs.current[index] = element
-              }}
-              type="button"
-              className={selectedReaction === reaction.key ? 'reaction-option active' : 'reaction-option'}
-              onClick={() => void handleSelectReaction(reaction.key)}
-              onKeyDown={(event) => {
-                if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
-                  event.preventDefault()
-                  focusOption(index + 1)
-                  return
-                }
-
-                if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
-                  event.preventDefault()
-                  focusOption(index - 1)
-                  return
-                }
-
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  void handleSelectReaction(reaction.key)
-                }
-              }}
-            >
-              <span aria-hidden="true">{reaction.icon}</span>
-              {reaction.label}
-            </button>
-          ))}
-
-          {selectedReaction ? (
-            <button type="button" className="reaction-option danger" onClick={() => void handleRemoveSelection()}>
-              Remover reação
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  )
-}
 
 function PublicPortal() {
   const navigate = useNavigate()
   const [articles, setArticles] = useState<Article[]>([])
+  const [categories, setCategories] = useState<NewsCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState<(typeof categories)[number]>('Todas')
+  const [selectedCategory, setSelectedCategory] = useState('Todas')
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoadingCards, setIsLoadingCards] = useState(false)
   const [newsRequestVersion, setNewsRequestVersion] = useState(0)
   const loadingTimerRef = useRef<number | null>(null)
 
-  const isAuthenticated = Boolean(getStoredUser())
+  const isAuthenticated = false
 
   useEffect(() => {
     const fetchNews = async () => {
@@ -319,8 +93,12 @@ function PublicPortal() {
         if (!data.success) {
           throw new Error(data.message ?? 'Não foi possível carregar as notícias.')
         }
+        if (!data.categories) {
+          throw new Error('A API não retornou as categorias do portal.')
+        }
 
         setArticles(data.data ?? [])
+        setCategories(data.categories)
         setError('')
       } catch (fetchError) {
         setError(fetchError instanceof Error ? fetchError.message : 'Não foi possível carregar as notícias.')
@@ -364,69 +142,15 @@ function PublicPortal() {
   const featuredArticle = filteredArticles.find((article) => article.destaque) ?? filteredArticles[0]
   const sideArticles = filteredArticles.filter((article) => article.id !== featuredArticle?.id)
 
-  const updateLocalArticleState = (articleId: number, nextSummary: ReactionSummary) => {
-    setArticles((currentArticles) =>
-      currentArticles.map((article) =>
-        article.id === articleId
-          ? {
-              ...article,
-              reactions: nextSummary,
-            }
-          : article,
-      ),
-    )
-  }
-
   const handleReact = async (articleId: number, reaction: ReactionType) => {
-    const userId = getStoredUser()
-
-    if (!userId) {
-      window.alert('Faça login para registrar uma reação.')
-      return
-    }
-
-    const response = await fetch(`/api/news/${articleId}/reactions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': userId,
-      },
-      body: JSON.stringify({ reaction }),
-    })
-
-    const data = await response.json()
-
-    if (!response.ok || !data.success) {
-      window.alert(data.message ?? 'Não foi possível registrar a reação.')
-      return
-    }
-
-    updateLocalArticleState(articleId, data.data)
+    void articleId
+    void reaction
+    handleRequireLogin()
   }
 
   const handleRemoveReaction = async (articleId: number) => {
-    const userId = getStoredUser()
-
-    if (!userId) {
-      window.alert('Faça login para remover a reação.')
-      return
-    }
-
-    const response = await fetch(`/api/news/${articleId}/reactions`, {
-      method: 'DELETE',
-      headers: {
-        'x-user-id': userId,
-      },
-    })
-
-    const data = await response.json()
-
-    if (!response.ok || !data.success) {
-      window.alert(data.message ?? 'Não foi possível remover a reação.')
-      return
-    }
-
-    updateLocalArticleState(articleId, data.data)
+    void articleId
+    handleRequireLogin()
   }
 
   const handleOpenComments = (slug: string) => {
@@ -434,10 +158,7 @@ function PublicPortal() {
   }
 
   const handleRequireLogin = () => {
-    if (!getStoredUser()) {
-      persistDemoUser()
-      window.alert('Usuário demo criado. Faça login para concluir a ação.')
-    }
+    window.alert('A autenticação de leitores ainda não está disponível. Esta ação está desativada.')
   }
 
   if (loading) {
@@ -453,32 +174,7 @@ function PublicPortal() {
 
   return (
     <div className="page-shell">
-      <header className="site-header">
-        <div className="brand" aria-label="Portal de Notícias">
-          <span className="brand-mark">P</span>
-          <div>
-            <strong>Portal</strong>
-            <span>de Notícias</span>
-          </div>
-        </div>
-
-        <nav aria-label="Menu principal" className="main-nav">
-          <a href="#">Home</a>
-          <a href="#">Política</a>
-          <a href="#">Economia</a>
-          <a href="#">Tecnologia</a>
-          <a href="#">Esportes</a>
-        </nav>
-
-        <div className="header-actions">
-          <Link to="/admin/login" className="admin-link">
-            Painel
-          </Link>
-          <button type="button" className="cta-button">
-            Assine
-          </button>
-        </div>
-      </header>
+      <SiteHeader categories={categories} />
 
       <main className="content-area">
         <section className="toolbar" aria-label="Busca e filtros">
@@ -495,6 +191,14 @@ function PublicPortal() {
               placeholder="Buscar por título, resumo ou conteúdo"
             />
           </label>
+          <button
+            type="button"
+            className="primary-button small"
+            disabled={!searchTerm.trim()}
+            onClick={() => navigate(`/busca?q=${encodeURIComponent(searchTerm.trim())}`)}
+          >
+            Buscar
+          </button>
           <div className="toolbar-meta">
             <span>{filteredArticles.length} notícias</span>
             <span>Atualizado hoje</span>
@@ -502,7 +206,7 @@ function PublicPortal() {
         </section>
 
         <div className="category-bar" aria-label="Categorias de notícias">
-          {categories.map((category) => (
+          {['Todas', ...categories.map((category) => category.name)].map((category) => (
             <button
               key={category}
               type="button"
@@ -616,9 +320,9 @@ function PublicPortal() {
           <span>Jornalismo digital com foco em contexto, clareza e cobertura inteligente.</span>
         </div>
         <nav aria-label="Rodapé">
-          <a href="#">Sobre</a>
-          <a href="#">Contato</a>
-          <a href="#">Termos</a>
+          <Link to="/">Home</Link>
+          <Link to="/categorias/games">Games</Link>
+          <Link to="/admin/login">Painel</Link>
         </nav>
       </footer>
     </div>
@@ -692,7 +396,6 @@ function CommentThread({
 function NewsDetailPage() {
   const { slug } = useParams()
   const location = useLocation()
-  const navigate = useNavigate()
   const [article, setArticle] = useState<Article | null>(null)
   const [comments, setComments] = useState<ThreadComment[]>([])
   const [commentDraft, setCommentDraft] = useState('')
@@ -703,7 +406,7 @@ function NewsDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const currentUser = getStoredUser()
+  const currentUser: string | null = null
 
   const fetchArticle = async () => {
     if (!slug) {
@@ -782,131 +485,27 @@ function NewsDetailPage() {
   }, [article])
 
   const handleReact = async (reaction: ReactionType) => {
-    if (!article) {
-      return
-    }
-
-    const userId = getStoredUser()
-    if (!userId) {
-      window.alert('Faça login para registrar uma reação.')
-      return
-    }
-
-    const response = await fetch(`/api/news/${article.id}/reactions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': userId,
-      },
-      body: JSON.stringify({ reaction }),
-    })
-
-    const data = await response.json()
-
-    if (!response.ok || !data.success) {
-      window.alert(data.message ?? 'Não foi possível atualizar a reação.')
-      return
-    }
-
-    setArticle((current) => (current ? { ...current, reactions: data.data } : current))
+    void reaction
+    window.alert('A autenticação de leitores ainda não está disponível. Reações estão desativadas.')
   }
 
   const handleRemoveReaction = async () => {
-    if (!article) {
-      return
-    }
-
-    const userId = getStoredUser()
-    if (!userId) {
-      window.alert('Faça login para remover a reação.')
-      return
-    }
-
-    const response = await fetch(`/api/news/${article.id}/reactions`, {
-      method: 'DELETE',
-      headers: {
-        'x-user-id': userId,
-      },
-    })
-
-    const data = await response.json()
-
-    if (!response.ok || !data.success) {
-      window.alert(data.message ?? 'Não foi possível remover a reação.')
-      return
-    }
-
-    setArticle((current) => (current ? { ...current, reactions: data.data } : current))
+    window.alert('A autenticação de leitores ainda não está disponível. Reações estão desativadas.')
   }
 
   const handleSubmitComment = async (parentId: number | null = null) => {
-    if (!article) {
-      return
-    }
-
-    const userId = getStoredUser()
-    if (!userId) {
-      window.alert('Faça login para comentar.')
-      return
-    }
-
-    if (!commentDraft.trim()) {
-      return
-    }
-
-    const response = await fetch(`/api/news/${article.id}/comments`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': userId,
-      },
-      body: JSON.stringify({
-        author: 'Visitante',
-        content: commentDraft.trim(),
-        parentId: parentId ?? undefined,
-      }),
-    })
-
-    const data = await response.json()
-
-    if (!response.ok || !data.success) {
-      window.alert(data.message ?? 'Não foi possível enviar o comentário.')
-      return
-    }
-
-    setCommentDraft('')
-    setReplyTarget(null)
-    setPage(1)
-    await fetchComments(1)
+    void parentId
+    window.alert('A autenticação de leitores ainda não está disponível. Comentários estão desativados.')
   }
 
   const handleDeleteComment = async (commentId: number) => {
-    if (!article) {
-      return
-    }
-
-    const userId = getStoredUser()
-    if (!userId) {
-      return
-    }
-
-    const response = await fetch(`/api/news/${article.id}/comments/${commentId}`, {
-      method: 'DELETE',
-      headers: {
-        'x-user-id': userId,
-      },
-    })
-
-    if (!response.ok) {
-      window.alert('Não foi possível excluir o comentário.')
-      return
-    }
-
-    await fetchComments(page)
+    void commentId
+    window.alert('A autenticação de leitores ainda não está disponível. Comentários estão desativados.')
   }
 
   const handleReportComment = (commentId: number) => {
-    window.alert(`Comentário ${commentId} foi sinalizado para moderação.`)
+    void commentId
+    window.alert('A ferramenta de denúncias ainda não está disponível.')
   }
 
   if (error) {
@@ -970,10 +569,9 @@ function NewsDetailPage() {
               onOpenComments={() => {
                 document.getElementById('comentarios')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               }}
-              onRequireLogin={() => {
-                persistDemoUser()
-                window.alert('Faça login para concluir a ação.')
-              }}
+              onRequireLogin={() =>
+                window.alert('A autenticação de leitores ainda não está disponível. Esta ação está desativada.')
+              }
             />
           </div>
         </div>
@@ -987,17 +585,7 @@ function NewsDetailPage() {
 
         {!currentUser ? (
           <div className="login-callout">
-            <p>Faça login para comentar e participar da conversa.</p>
-            <button
-              type="button"
-              className="primary-button small"
-              onClick={() => {
-                persistDemoUser()
-                navigate(0)
-              }}
-            >
-              Entrar para comentar
-            </button>
+            <p>A autenticação de leitores ainda não está disponível. Comentários e respostas estão desativados.</p>
           </div>
         ) : (
           <form
@@ -1142,13 +730,12 @@ function AdminLoginPage() {
         body: JSON.stringify(form),
       })
 
-      const data = await response.json()
+      const data = await readApiResponse<never>(response)
 
-      if (!response.ok || !data.success) {
+      if (!data.success) {
         throw new Error(data.message ?? 'Falha ao entrar no painel.')
       }
 
-      localStorage.setItem(ADMIN_TOKEN_KEY, data.token)
       navigate('/admin/dashboard', { replace: true })
     } catch (loginError) {
       setError(
@@ -1216,20 +803,30 @@ function DashboardPage() {
     recent: Array<{ id: number; titulo: string; status: string }>
   } | null>(null)
   const [news, setNews] = useState<AdminNewsItem[]>([])
+  const [adminCategories, setAdminCategories] = useState<string[]>([])
   const [draft, setDraft] = useState<DraftNews>(defaultDraft)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLoadingNews, setIsLoadingNews] = useState(false)
   const [error, setError] = useState('')
 
-  const loadAdminData = async (token: string) => {
+  const loadAdminData = async () => {
     setIsLoadingNews(true)
 
     try {
-      const dashboardResponse = await fetch('/api/admin/dashboard', {
-        headers: {
-          Authorization: 'Bearer ' + token,
-        },
-      })
+      const sessionResponse = await fetch('/api/admin/session', { credentials: 'same-origin' })
+      const sessionData = await sessionResponse.json()
+
+      if (!sessionResponse.ok || !sessionData.success) {
+        throw new Error(sessionData.message ?? 'Sessão inválida.')
+      }
+
+      const categoriesResponse = await fetch('/api/categories')
+      const categoriesData = await readApiResponse<NewsCategory[]>(categoriesResponse)
+      if (!categoriesData.success || !categoriesData.data) {
+        throw new Error(categoriesData.message ?? 'Não foi possível carregar as categorias.')
+      }
+
+      const dashboardResponse = await fetch('/api/admin/dashboard', { credentials: 'same-origin' })
 
       const dashboardData = await dashboardResponse.json()
 
@@ -1237,11 +834,7 @@ function DashboardPage() {
         throw new Error(dashboardData.message ?? 'Sessão inválida.')
       }
 
-      const newsResponse = await fetch('/api/admin/news', {
-        headers: {
-          Authorization: 'Bearer ' + token,
-        },
-      })
+      const newsResponse = await fetch('/api/admin/news', { credentials: 'same-origin' })
 
       const newsData = await newsResponse.json()
 
@@ -1251,40 +844,34 @@ function DashboardPage() {
 
       setStats(dashboardData.data)
       setNews(newsData.data ?? [])
+      setAdminCategories(categoriesData.data.map((category) => category.name))
     } catch (loadError) {
-      localStorage.removeItem(ADMIN_TOKEN_KEY)
       navigate('/admin/login', { replace: true })
-      throw loadError
+      setError(loadError instanceof Error ? loadError.message : 'Sessão inválida.')
     } finally {
       setIsLoadingNews(false)
     }
   }
 
   useEffect(() => {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-
-    if (!token) {
-      navigate('/admin/login', { replace: true })
-      return
-    }
-
-    void loadAdminData(token)
+    void loadAdminData()
   }, [navigate])
 
   const handleLogout = async () => {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-
-    if (token) {
-      await fetch('/api/admin/logout', {
+    setError('')
+    try {
+      const response = await fetch('/api/admin/logout', {
         method: 'POST',
-        headers: {
-          Authorization: 'Bearer ' + token,
-        },
+        credentials: 'same-origin',
       })
+      const data = await readApiResponse<never>(response)
+      if (!data.success) {
+        throw new Error(data.message ?? 'Não foi possível encerrar a sessão.')
+      }
+      navigate('/admin/login', { replace: true })
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : 'Não foi possível encerrar a sessão.')
     }
-
-    localStorage.removeItem(ADMIN_TOKEN_KEY)
-    navigate('/admin/login', { replace: true })
   }
 
   const handleDraftChange = <K extends keyof DraftNews>(field: K, value: DraftNews[K]) => {
@@ -1292,24 +879,11 @@ function DashboardPage() {
   }
 
   const refreshAdminData = async () => {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-
-    if (!token) {
-      navigate('/admin/login', { replace: true })
-      return
-    }
-
-    await loadAdminData(token)
+    await loadAdminData()
   }
 
   const handleCreateNews = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-
-    if (!token) {
-      navigate('/admin/login', { replace: true })
-      return
-    }
 
     if (!draft.titulo.trim() || !draft.resumo.trim() || !draft.conteudo.trim()) {
       setError('Preencha título, resumo e conteúdo antes de salvar.')
@@ -1324,8 +898,8 @@ function DashboardPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + token,
         },
+        credentials: 'same-origin',
         body: JSON.stringify({
           ...draft,
           titulo: draft.titulo.trim(),
@@ -1352,20 +926,13 @@ function DashboardPage() {
   }
 
   const handleStatusUpdate = async (id: number, status: AdminNewsStatus) => {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-
-    if (!token) {
-      navigate('/admin/login', { replace: true })
-      return
-    }
-
     try {
       const response = await fetch(`/api/admin/news/${id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + token,
         },
+        credentials: 'same-origin',
         body: JSON.stringify({ status }),
       })
 
@@ -1382,19 +949,10 @@ function DashboardPage() {
   }
 
   const handleDelete = async (id: number) => {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-
-    if (!token) {
-      navigate('/admin/login', { replace: true })
-      return
-    }
-
     try {
       const response = await fetch(`/api/admin/news/${id}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: 'Bearer ' + token,
-        },
+        credentials: 'same-origin',
       })
 
       if (!response.ok) {
@@ -1487,7 +1045,7 @@ function DashboardPage() {
                     value={draft.categoria}
                     onChange={(event) => handleDraftChange('categoria', event.target.value)}
                   >
-                    {['Brasil', 'Mundo', 'Política', 'Economia', 'Tecnologia', 'Esportes', 'Entretenimento'].map((category) => (
+                    {adminCategories.map((category) => (
                       <option key={category} value={category}>
                         {category}
                       </option>
@@ -1618,8 +1176,20 @@ function DashboardPage() {
 }
 
 function ProtectedAdminRoute() {
-  const token = localStorage.getItem(ADMIN_TOKEN_KEY)
-  return token ? <DashboardPage /> : <Navigate to="/admin/login" replace />
+  return <DashboardPage />
+}
+
+function NotFoundPage() {
+  return (
+    <div className="page-shell">
+      <div className="status-panel empty">
+        <p className="eyebrow">Erro 404</p>
+        <h1>Página não encontrada.</h1>
+        <p>O endereço pode ter mudado ou não existe.</p>
+        <Link to="/" className="secondary-link">Voltar para a home</Link>
+      </div>
+    </div>
+  )
 }
 
 function App() {
@@ -1627,9 +1197,12 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<PublicPortal />} />
+        <Route path="/categorias/:slug" element={<CategoryPage />} />
+        <Route path="/busca" element={<CategoryPage />} />
         <Route path="/noticias/:slug" element={<NewsDetailPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin/dashboard" element={<ProtectedAdminRoute />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   )

@@ -130,19 +130,44 @@ Reduzir o ruído visual da homepage, manter a descoberta de notícias limpa e co
 ### Status
 - Implementado parcialmente em frontend e validado localmente.
 
+## Fase 4 — Revisão de segurança e páginas públicas
+
+### Implementado
+- Removidos os valores padrão de autenticação administrativa; a senha é verificada por hash scrypt.
+- Sessão administrativa migrada para cookie HttpOnly, SameSite=Lax e validade limitada, com verificação de origem para operações de escrita.
+- Escritas sociais sem autenticação real agora retornam 401; cabeçalhos de identidade enviados pelo cliente não autenticam usuários.
+- Detalhes de notícias não publicadas não são entregues pela rota pública.
+- A configuração do backend carrega `backend/.env`, com validação Zod; o README orienta a criação local do arquivo e geração oculta do hash de senha.
+- O `NewsInteractionBar` foi extraído para componente reutilizável.
+- Adicionadas páginas de categoria e busca com paginação, menu alimentado pelas categorias da API, categoria Games e página 404.
+- Substituídos links fictícios da navegação pública por destinos existentes.
+- Criado o guia de configuração Google, mantendo OAuth/integrações desativados até que o fluxo seja implementado.
+
+### Validação
+- Testes backend: 7 aprovados.
+- Build backend: aprovado.
+- Build frontend: aprovado.
+- Lint frontend: executado; reporta avisos de hooks em telas existentes.
+- Testes frontend: 8 aprovados na execução anterior; a reexecução após acrescentar casos de teclado e HTTP 503 não iniciou, pois o Vitest não conseguiu iniciar seus workers.
+- Verificação manual no navegador: home sem comentários embutidos, rota Games, detalhe com hash `#comentarios`, 404, login com erro de configuração, redirecionamento do dashboard sem sessão e botões lado a lado em viewport desktop/mobile.
+
+### Limitações conhecidas
+- Autenticação de leitores ainda não existe; reações e comentários de escrita permanecem desativados de forma explícita.
+- Google OAuth, Sheets, Drive e Fotos não foram ativados.
+- A validação visual foi feita localmente; publicação e revisão em ambiente hospedado continuam pendentes.
+
 ## Roadmap previsto
-1. Finalizar a estrutura do backend e API REST.
-2. Implementar autenticação administrativa.
-3. Integrar Google Sheets e estrutura de banco inicial.
-4. Integrar Google Drive e gestão de imagens.
-5. Integrar Google Fotos e importação de imagens.
-6. Implementar RSS e revisão manual.
-7. Expandir testes e CI.
-8. Preparar documentação e publicação.
+1. [x] Proteger autenticação administrativa e filtrar conteúdo público.
+2. [x] Criar rotas por categoria, busca paginada, Games e página 404.
+3. [ ] Finalizar regressão visual e testes de acessibilidade/responsividade.
+4. [ ] Implementar OAuth Google após definir conta de serviço versus autorização de usuário.
+5. [ ] Integrar Sheets/Drive e persistência de notícias.
+6. [ ] Avaliar Google Fotos e RSS com escopos e políticas adequados.
+7. [ ] Expandir testes/CI e preparar publicação.
 
 ## Registro do diagnóstico
 - Repositório localizado em `portal-noticias`.
 - Stack atual: React + Vite + TypeScript no frontend e Express + TypeScript no backend.
-- Branch ativa: `main`.
+- Branch ativa: `refactor/security-pages-navigation`.
 - Estrutura atual: frontend preservado; backend adicionado de forma modular e local.
 - Integrações externas permanecem bloqueadas por autorização do usuário.

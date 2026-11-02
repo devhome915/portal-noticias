@@ -136,6 +136,34 @@
   margin-top: 32px;
 }
 
+.category-page-heading {
+  margin-bottom: 24px;
+}
+
+.category-page-heading h1 {
+  margin: 8px 0;
+  color: #111827;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.category-page-heading > p:last-child {
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.6;
+}
+
+.category-news-grid {
+  margin-top: 0;
+}
+
+.main-nav {
+  max-width: 640px;
+}
+
+.main-nav a {
+  white-space: nowrap;
+}
+
 .toolbar {
   display: flex;
   justify-content: space-between;
