@@ -12,7 +12,9 @@ export const app = express()
 app.use(cors({ origin: env.frontendUrl, credentials: true }))
 app.use(helmet())
 app.use(express.json({ limit: '2mb' }))
-app.use(morgan('dev'))
+app.use(morgan('dev', {
+  skip: (req) => req.path === '/api/admin/google/auth/callback',
+}))
 app.disable('x-powered-by')
 
 app.use('/api', publicRoutes)

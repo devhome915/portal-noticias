@@ -1,11 +1,34 @@
-import { Router } from 'express'
+import { Router, type Response } from 'express'
 import { z } from 'zod'
-import { requireAdminAuth } from '../middleware/adminAuth.js'
+import { env } from '../config/env.js'
 import {
+  AUTH_SESSION_COOKIE,
+  LEGACY_ADMIN_SESSION_COOKIE,
+  getAdminTokenFromRequest,
+  requireAdminAuth,
+  requireAdminCsrf,
+} from '../middleware/adminAuth.js'
+import {
+  getAdminSession,
+  issueGoogleSession,
+  isAdminAuthConfigured,
   issueAdminToken,
   revokeAdminToken,
   validateAdminCredentials,
 } from '../services/authService.js'
+import {
+  cancelGoogleAuthorization,
+  cancelGoogleLogin,
+  completeGoogleLogin,
+  createGoogleLoginUrl,
+  createGoogleAuthorizationUrl,
+  disconnectGoogleAccount,
+  exchangeGoogleAuthorizationCode,
+  forgetGoogleConnection,
+  getGoogleConnectionStatus,
+  isGoogleOAuthConfigured,
+  isPendingGoogleLogin,
+} from '../services/googleOAuthService.js'
 import {
   createNews,
   deleteNewsById,
@@ -13,6 +36,7 @@ import {
   updateNewsById,
   updateStatusById,
 } from '../services/newsService.js'
+import { categoryNames } from '../data/categories.js'
 
 const router = Router()
 
@@ -20,7 +44,7 @@ const articleSchema = z.object({
   titulo: z.string().min(3),
   resumo: z.string().min(10),
   conteudo: z.string().min(20),
-  categoria: z.enum(['Brasil', 'Mundo', 'Política', 'Economia', 'Tecnologia', 'Esportes', 'Entretenimento']),
+  categoria: z.enum(categoryNames),
   autor: z.string().min(2),
   fonte: z.string().min(2),
   urlFonte: z.string().url(),
@@ -41,7 +65,120 @@ const loginSchema = z.object({
   password: z.string().min(6),
 })
 
-router.post('/login', (req, res) => {
+const failedLoginAttempts = new Map<string, { count: number; resetAt: number }>()
+const LOGIN_ATTEMPT_LIMIT = 5
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+const SESSION_MAX_AGE_SECONDS = 8 * 60 * 60
+
+function setAdminSessionCookie(res: Response, token: string) {
+  const secure = env.nodeEnv === 'production' ? '; Secure' : ''
+  res.setHeader(
+    'Set-Cookie',
+    [
+      `${AUTH_SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_MAX_AGE_SECONDS}${secure}`,
+      `${LEGACY_ADMIN_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/api/admin; Max-Age=0${secure}`,
+    ],
+  )
+}
+
+function clearAdminSessionCookie(res: Response) {
+  const secure = env.nodeEnv === 'production' ? '; Secure' : ''
+  res.setHeader(
+    'Set-Cookie',
+    [
+      `${AUTH_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`,
+      `${LEGACY_ADMIN_SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/api/admin; Max-Age=0${secure}`,
+    ],
+  )
+}
+
+function getGoogleReturnUrl(result: 'connected' | 'disconnected' | 'denied' | 'error') {
+  const url = new URL('/admin/dashboard', env.frontendUrl)
+  url.searchParams.set('google', result)
+  return url.toString()
+}
+
+function getLoginReturnUrl(result: 'denied' | 'error' | 'not-allowed') {
+  const url = new URL('/admin/login', env.frontendUrl)
+  url.searchParams.set('google', result)
+  return url.toString()
+}
+
+router.get('/google/login', (req, res) => {
+  if (!isGoogleOAuthConfigured()) {
+    return res.redirect(getLoginReturnUrl('not-allowed'))
+  }
+  const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : undefined
+  return res.redirect(302, createGoogleLoginUrl(returnTo))
+})
+
+router.get('/google/auth/callback', async (req, res) => {
+  const state = typeof req.query.state === 'string' ? req.query.state : ''
+
+  if (isPendingGoogleLogin(state)) {
+    if (typeof req.query.error === 'string') {
+      cancelGoogleLogin(state)
+      return res.redirect(getLoginReturnUrl('denied'))
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : ''
+    if (!code) {
+      cancelGoogleLogin(state)
+      return res.redirect(getLoginReturnUrl('error'))
+    }
+
+    try {
+      const profile = await completeGoogleLogin(code, state)
+      const { token } = issueGoogleSession(profile.email, profile.name, profile.picture)
+      setAdminSessionCookie(res, token)
+      const returnUrl = new URL(profile.returnTo, env.frontendUrl)
+      returnUrl.searchParams.set('login', 'success')
+      return res.redirect(returnUrl.toString())
+    } catch {
+      cancelGoogleLogin(state)
+      return res.redirect(getLoginReturnUrl('error'))
+    }
+  }
+
+  const adminToken = getAdminTokenFromRequest(req)
+  if (!adminToken || !getAdminSession(adminToken)) {
+    return res.redirect(getGoogleReturnUrl('error'))
+  }
+  if (typeof req.query.error === 'string') {
+    if (!state || !cancelGoogleAuthorization(state, adminToken)) {
+      return res.redirect(getGoogleReturnUrl('error'))
+    }
+    return res.redirect(getGoogleReturnUrl('denied'))
+  }
+  const code = typeof req.query.code === 'string' ? req.query.code : ''
+  if (!code || !state) return res.redirect(getGoogleReturnUrl('error'))
+  try {
+    await exchangeGoogleAuthorizationCode(code, state, adminToken)
+    return res.redirect(getGoogleReturnUrl('connected'))
+  } catch {
+    return res.redirect(getGoogleReturnUrl('error'))
+  }
+})
+
+router.post('/login', requireAdminCsrf, (req, res) => {
+  if (!isAdminAuthConfigured()) {
+    return res.status(503).json({
+      success: false,
+      message: 'A autenticação administrativa ainda não foi configurada.',
+    })
+  }
+
+  const now = Date.now()
+  const clientIp = req.ip ?? 'unknown'
+  const attempt = failedLoginAttempts.get(clientIp)
+  if (attempt && attempt.resetAt > now && attempt.count >= LOGIN_ATTEMPT_LIMIT) {
+    res.setHeader('Retry-After', Math.ceil((attempt.resetAt - now) / 1000))
+    return res.status(429).json({
+      success: false,
+      message: 'Muitas tentativas de login. Tente novamente mais tarde.',
+    })
+  }
+
   const parsed = loginSchema.safeParse(req.body)
 
   if (!parsed.success) {
@@ -55,28 +192,48 @@ router.post('/login', (req, res) => {
   const { username, password } = parsed.data
 
   if (!validateAdminCredentials(username, password)) {
+    const activeAttempt = attempt && attempt.resetAt > now ? attempt : { count: 0, resetAt: now + LOGIN_WINDOW_MS }
+    failedLoginAttempts.set(clientIp, { ...activeAttempt, count: activeAttempt.count + 1 })
     return res.status(401).json({
       success: false,
       message: 'Credenciais do painel administrativo incorretas.',
     })
   }
 
-  const token = issueAdminToken(username)
+  failedLoginAttempts.delete(clientIp)
+  const { token } = issueAdminToken(username)
+  setAdminSessionCookie(res, token)
 
   return res.json({
     success: true,
-    token,
     user: { username },
   })
 })
 
-router.post('/logout', (req, res) => {
-  const authHeader = req.headers.authorization
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+router.get('/session', requireAdminAuth, (req, res) => {
+  const token = getAdminTokenFromRequest(req)
+  const session = getAdminSession(token)
 
+  if (!session) {
+    return res.status(401).json({
+      success: false,
+      message: 'Sessão de administrador inválida ou expirada.',
+    })
+  }
+
+  return res.json({
+    success: true,
+    data: { username: session.username, expiresAt: session.expiresAt },
+  })
+})
+
+router.post('/logout', requireAdminAuth, requireAdminCsrf, (req, res) => {
+  const token = getAdminTokenFromRequest(req)
   if (token) {
     revokeAdminToken(token)
+    forgetGoogleConnection(token)
   }
+  clearAdminSessionCookie(res)
 
   return res.json({
     success: true,
@@ -103,7 +260,53 @@ router.get('/dashboard', requireAdminAuth, (_req, res) => {
   })
 })
 
+router.get('/google/status', requireAdminAuth, (req, res) => {
+  const adminToken = getAdminTokenFromRequest(req)
+  if (!adminToken) {
+    return res.status(401).json({ success: false, message: 'Sessão administrativa inválida.' })
+  }
+
+  return res.json({
+    success: true,
+    data: getGoogleConnectionStatus(adminToken),
+  })
+})
+
+router.get('/google/auth', requireAdminAuth, (req, res) => {
+  const adminToken = getAdminTokenFromRequest(req)
+  if (!adminToken) {
+    return res.status(401).json({ success: false, message: 'Sessão administrativa inválida.' })
+  }
+
+  if (!isGoogleOAuthConfigured()) {
+    return res.status(503).json({
+      success: false,
+      message: 'Configure as credenciais OAuth Google no backend antes de conectar.',
+    })
+  }
+
+  return res.redirect(302, createGoogleAuthorizationUrl(adminToken))
+})
+
+router.post('/google/disconnect', requireAdminAuth, requireAdminCsrf, async (req, res) => {
+  const adminToken = getAdminTokenFromRequest(req)
+  if (!adminToken) {
+    return res.status(401).json({ success: false, message: 'Sessão administrativa inválida.' })
+  }
+
+  try {
+    await disconnectGoogleAccount(adminToken)
+    return res.json({ success: true, message: 'Acesso Google revogado.' })
+  } catch (error) {
+    return res.status(502).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Não foi possível revogar o acesso Google.',
+    })
+  }
+})
+
 router.use(requireAdminAuth)
+router.use(requireAdminCsrf)
 
 router.get('/news', (_req, res) => {
   res.json({

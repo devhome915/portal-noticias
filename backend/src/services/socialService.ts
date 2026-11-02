@@ -1,3 +1,7 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 export type ReactionType = 'curtir' | 'amei' | 'uau' | 'triste' | 'bravo'
 
 export type ReactionSummary = {
@@ -19,6 +23,7 @@ export type SocialComment = {
   parentId: number | null
   edited: boolean
   replies?: SocialComment[]
+  reactions?: ReactionSummary
 }
 
 const emptyReactionState = (): Record<ReactionType, number> => ({
@@ -32,6 +37,52 @@ const emptyReactionState = (): Record<ReactionType, number> => ({
 const reactionCounts = new Map<number, Record<ReactionType, number>>()
 const userReactions = new Map<number, Map<string, ReactionType>>()
 const articleComments = new Map<number, SocialComment[]>()
+const commentReactionCounts = new Map<number, Record<ReactionType, number>>()
+const commentUserReactions = new Map<number, Map<string, ReactionType>>()
+const moduleDirectory = dirname(fileURLToPath(import.meta.url))
+const socialStorePath = [
+  resolve(moduleDirectory, '../../data/social-store.json'),
+  resolve(moduleDirectory, '../../../data/social-store.json'),
+].find(existsSync) ?? resolve(moduleDirectory, '../../data/social-store.json')
+
+type PersistedSocialStore = {
+  comments?: Record<string, SocialComment[]>
+  articleReactions?: Record<string, { counts: Record<ReactionType, number>; users?: Array<[string, ReactionType]> }>
+  commentReactions?: Record<string, { counts: Record<ReactionType, number>; users?: Array<[string, ReactionType]> }>
+}
+
+function persistSocialStore() {
+  const store: PersistedSocialStore = {
+    comments: Object.fromEntries(articleComments),
+    articleReactions: Object.fromEntries([...reactionCounts].map(([id, counts]) => [
+      String(id), { counts, users: [...(userReactions.get(id) ?? new Map())] },
+    ])),
+    commentReactions: Object.fromEntries([...commentReactionCounts].map(([id, counts]) => [
+      String(id), { counts, users: [...(commentUserReactions.get(id) ?? new Map())] },
+    ])),
+  }
+  mkdirSync(dirname(socialStorePath), { recursive: true })
+  writeFileSync(socialStorePath, JSON.stringify(store, null, 2), 'utf8')
+}
+
+function loadSocialStore() {
+  try {
+    const store = JSON.parse(readFileSync(socialStorePath, 'utf8')) as PersistedSocialStore
+    for (const [id, comments] of Object.entries(store.comments ?? {})) articleComments.set(Number(id), comments)
+    for (const [id, state] of Object.entries(store.articleReactions ?? {})) {
+      reactionCounts.set(Number(id), state.counts)
+      userReactions.set(Number(id), new Map(state.users ?? []))
+    }
+    for (const [id, state] of Object.entries(store.commentReactions ?? {})) {
+      commentReactionCounts.set(Number(id), state.counts)
+      commentUserReactions.set(Number(id), new Map(state.users ?? []))
+    }
+  } catch {
+    // A instalação nova começa com as conversas de exemplo e cria o arquivo no primeiro ajuste.
+  }
+}
+
+loadSocialStore()
 
 const buildSeedComments = (articleId: number): SocialComment[] => {
   if (articleId === 1) {
@@ -89,8 +140,67 @@ const ensureReactionState = (articleId: number) => {
 
 const ensureCommentState = (articleId: number) => {
   if (!articleComments.has(articleId)) {
-    articleComments.set(articleId, buildSeedComments(articleId))
+    const flatten = (items: SocialComment[]): SocialComment[] => items.flatMap((comment) => {
+      const { replies, ...record } = comment
+      return [record, ...flatten(replies ?? [])]
+    })
+    articleComments.set(articleId, flatten(buildSeedComments(articleId)))
   }
+}
+
+const ensureCommentReactionState = (commentId: number) => {
+  if (!commentReactionCounts.has(commentId)) commentReactionCounts.set(commentId, emptyReactionState())
+  if (!commentUserReactions.has(commentId)) commentUserReactions.set(commentId, new Map())
+}
+
+export function isCommentReactable(articleId: number, commentId: number) {
+  ensureCommentState(articleId)
+  const findApproved = (comments: SocialComment[]): boolean => comments.some((comment) =>
+    (comment.id === commentId && comment.status === 'aprovado') || findApproved(comment.replies ?? []))
+  return findApproved(articleComments.get(articleId) ?? [])
+}
+
+export function getCommentReactionSummary(commentId: number, userId?: string): ReactionSummary {
+  ensureCommentReactionState(commentId)
+  const byType = commentReactionCounts.get(commentId) ?? emptyReactionState()
+  const total = (Object.keys(byType) as ReactionType[]).reduce((sum, key) => sum + byType[key], 0)
+  return {
+    total,
+    byType,
+    userReaction: userId ? commentUserReactions.get(commentId)?.get(userId) ?? null : null,
+  }
+}
+
+export function setCommentReaction(commentId: number, userId: string, reaction: ReactionType): ReactionSummary {
+  if (!userId.trim()) throw new Error('Usuário não autenticado para registrar reação.')
+  ensureCommentReactionState(commentId)
+  const byType = commentReactionCounts.get(commentId) ?? emptyReactionState()
+  const users = commentUserReactions.get(commentId) ?? new Map<string, ReactionType>()
+  const previous = users.get(userId)
+  if (previous && previous !== reaction) byType[previous] = Math.max(0, byType[previous] - 1)
+  if (previous !== reaction) {
+    byType[reaction] += 1
+    users.set(userId, reaction)
+  }
+  commentReactionCounts.set(commentId, byType)
+  commentUserReactions.set(commentId, users)
+  persistSocialStore()
+  return getCommentReactionSummary(commentId, userId)
+}
+
+export function removeCommentReaction(commentId: number, userId: string): ReactionSummary {
+  ensureCommentReactionState(commentId)
+  const byType = commentReactionCounts.get(commentId) ?? emptyReactionState()
+  const users = commentUserReactions.get(commentId) ?? new Map<string, ReactionType>()
+  const previous = users.get(userId)
+  if (previous) {
+    byType[previous] = Math.max(0, byType[previous] - 1)
+    users.delete(userId)
+  }
+  commentReactionCounts.set(commentId, byType)
+  commentUserReactions.set(commentId, users)
+  persistSocialStore()
+  return getCommentReactionSummary(commentId, userId)
 }
 
 export function getReactionSummary(articleId: number, userId?: string): ReactionSummary {
@@ -128,6 +238,7 @@ export function setReaction(articleId: number, userId: string, reaction: Reactio
 
   userReactions.set(articleId, articleUsers)
   reactionCounts.set(articleId, counts)
+  persistSocialStore()
 
   return getReactionSummary(articleId, userId)
 }
@@ -145,6 +256,7 @@ export function removeReaction(articleId: number, userId: string): ReactionSumma
 
   userReactions.set(articleId, articleUsers)
   reactionCounts.set(articleId, counts)
+  persistSocialStore()
 
   return getReactionSummary(articleId, userId)
 }
@@ -154,15 +266,16 @@ export function getCommentsCount(articleId: number) {
   return articleComments.get(articleId)?.filter((comment) => comment.status === 'aprovado').length ?? 0
 }
 
-const buildTree = (allComments: SocialComment[], parentId: number | null): SocialComment[] =>
+const buildTree = (allComments: SocialComment[], parentId: number | null, userId?: string): SocialComment[] =>
   allComments
     .filter((comment) => comment.parentId === parentId && comment.status === 'aprovado')
     .map((comment) => ({
       ...comment,
-      replies: buildTree(allComments, comment.id),
+      reactions: getCommentReactionSummary(comment.id, userId),
+      replies: buildTree(allComments, comment.id, userId),
     }))
 
-export function listComments(articleId: number, page: number, limit: number) {
+export function listComments(articleId: number, page: number, limit: number, userId?: string) {
   ensureCommentState(articleId)
   const allComments = articleComments.get(articleId) ?? []
   const approved = allComments.filter((comment) => comment.status === 'aprovado')
@@ -180,7 +293,8 @@ export function listComments(articleId: number, page: number, limit: number) {
     totalPages,
     items: slice.map((comment) => ({
       ...comment,
-      replies: buildTree(approved, comment.id),
+      reactions: getCommentReactionSummary(comment.id, userId),
+      replies: buildTree(approved, comment.id, userId),
     })),
   }
 }
@@ -203,6 +317,7 @@ export function createComment(articleId: number, userId: string, author: string,
 
   comments.push(record)
   articleComments.set(articleId, comments)
+  persistSocialStore()
   return record
 }
 
@@ -218,5 +333,6 @@ export function deleteComment(articleId: number, commentId: number, userId: stri
   const targetIndex = comments.findIndex((comment) => comment.id === commentId)
   comments.splice(targetIndex, 1)
   articleComments.set(articleId, comments)
+  persistSocialStore()
   return true
 }

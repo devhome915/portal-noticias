@@ -2,6 +2,18 @@
 
 ## Endpoints públicos
 
+### GET /api/auth/session
+Retorna o usuário Google conectado e o papel de acesso (`reader` ou `admin`).
+
+### POST /api/auth/logout
+Encerra a sessão do portal; exige a origem local autorizada.
+
+### POST /api/news/:id/comments/:commentId/reactions
+Registra ou troca a reação do usuário autenticado em um comentário ou resposta.
+
+### DELETE /api/news/:id/comments/:commentId/reactions
+Remove a reação do usuário autenticado de um comentário ou resposta.
+
 ### GET /api/health
 Retorna o status da API.
 
@@ -41,10 +53,23 @@ Exclui uma notícia.
 Atualiza o status da notícia.
 
 ### GET /api/admin/google/status
-Retorna status de integração Google. Atualmente bloqueado até aprovação e configuração real.
+Retorna o estado da configuração e da autorização Google da sessão administrativa.
+
+### GET /api/admin/google/login
+Inicia o login administrativo Google. O backend só cria sessão quando o e-mail verificado corresponde a `ADMIN_GOOGLE_EMAIL`.
+
+### GET /api/admin/google/auth
+Inicia o fluxo OAuth Google com os escopos de Sheets e Drive limitados a `drive.file`.
+
+### GET /api/admin/google/auth/callback
+Callback OAuth cadastrado no Google Cloud Console. Conclui o login Google ou a autorização de integrações iniciada por uma sessão administrativa.
+
+### POST /api/admin/google/disconnect
+Revoga o token Google e remove a conexão mantida para a sessão.
 
 ## Observações
 
-- A API local funciona em memória para permitir desenvolvimento incremental e testes.
+- Notícias do painel são persistidas em JSON local; sessões e dados sociais ainda ficam em memória.
+- Reações e comentários de leitores exigem uma sessão Google válida; a identidade é derivada do cookie HttpOnly.
 - Google Sheets, Drive e Fotos não devem ser configurados sem autorização explícita do usuário.
 - O contrato REST segue a estrutura planejada para evolução futura.
